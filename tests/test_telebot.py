@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
+import warnings
+import logging
 
 sys.path.append('../')
 
@@ -19,13 +21,56 @@ if not should_skip:
     CHAT_ID = os.environ['CHAT_ID']
     GROUP_ID = os.environ['GROUP_ID']
 
-def _new_test():
-    pass
 
-@util.deprecated(alternative=_new_test)
-def _test():
-    pass
-        
+def deprecated1_new_function():
+    print("deprecated1_new_function")
+def deprecated1_old_function():
+    print("deprecated1_old_function")
+    warnings.warn("The 'deprecated1_old_function' is deprecated. Use `deprecated1_new_function` instead", DeprecationWarning, 2)
+    deprecated1_new_function()
+
+def deprecated2_new_function():
+    print("deprecated2_new_function")
+@util.deprecated(alternative=deprecated2_new_function)
+def deprecated2_old_function():
+    print("deprecated2_old_function")
+
+
+@pytest.mark.parametrize(
+    'logger_level, expected_count, includes_traceback',
+    [
+        (logging.DEBUG, 3, True),
+        (logging.INFO, 2, False),
+        (logging.ERROR, 1, False),
+        (None, 0, False),
+    ],
+)
+def test_infinity_polling_honors_logger_level(
+        monkeypatch, logger_level, expected_count, includes_traceback):
+    class RecordingLogger:
+        def __init__(self):
+            self.messages = []
+
+        def error(self, message, *args):
+            self.messages.append(message % args if args else message)
+
+    bot = telebot.TeleBot('1:fake', validate_token=False)
+    logger = RecordingLogger()
+
+    def fail_polling(*args, **kwargs):
+        bot._TeleBot__stop_polling.set()
+        raise RuntimeError('polling failed')
+
+    monkeypatch.setattr(telebot, 'logger', logger)
+    monkeypatch.setattr(telebot.time, 'sleep', lambda _seconds: None)
+    monkeypatch.setattr(bot, 'polling', fail_polling)
+
+    bot.infinity_polling(logger_level=logger_level)
+
+    assert len(logger.messages) == expected_count
+    if logger_level:
+        assert logger.messages[0] == 'Infinity polling exception: polling failed'
+    assert any('Exception traceback:' in message for message in logger.messages) is includes_traceback
 
 
 @pytest.mark.skipif(should_skip, reason="No environment variables configured")
@@ -38,11 +83,11 @@ class TestTeleBot:
         def listener(messages):
             assert len(messages) == 100
 
-        tb = telebot.TeleBot('')
+        tb = telebot.TeleBot(TOKEN)
         tb.set_update_listener(listener)
 
     def test_message_handler(self):
-        tb = telebot.TeleBot('')
+        tb = telebot.TeleBot(TOKEN)
         msg = self.create_text_message('/help')
 
         @tb.message_handler(commands=['help', 'start'])
@@ -54,7 +99,7 @@ class TestTeleBot:
         assert msg.text == 'got'
 
     def test_message_handler_reg(self):
-        bot = telebot.TeleBot('')
+        bot = telebot.TeleBot(TOKEN)
         msg = self.create_text_message(r'https://web.telegram.org/')
 
         # noinspection PyUnusedLocal
@@ -67,7 +112,7 @@ class TestTeleBot:
         assert msg.text == 'got'
 
     def test_message_handler_lambda(self):
-        bot = telebot.TeleBot('')
+        bot = telebot.TeleBot(TOKEN)
         msg = self.create_text_message(r'lambda_text')
 
         # noinspection PyUnusedLocal
@@ -80,7 +125,7 @@ class TestTeleBot:
         assert msg.text == 'got'
 
     def test_message_handler_lambda_fail(self):
-        bot = telebot.TeleBot('')
+        bot = telebot.TeleBot(TOKEN)
         msg = self.create_text_message(r'text')
 
         # noinspection PyUnusedLocal
@@ -93,7 +138,7 @@ class TestTeleBot:
         assert not msg.text == 'got'
 
     def test_message_handler_reg_fail(self):
-        bot = telebot.TeleBot('')
+        bot = telebot.TeleBot(TOKEN)
         msg = self.create_text_message(r'web.telegram.org/')
 
         # noinspection PyUnusedLocal
@@ -141,6 +186,7 @@ class TestTeleBot:
         ret_msg = tb.send_document(CHAT_ID, file_data)
         assert ret_msg.message_id
 
+        file_data.seek(0)
         ret_msg = tb.send_document(CHAT_ID, file_data, visible_file_name="test.jpg")
         assert ret_msg.message_id
         
@@ -169,10 +215,10 @@ class TestTeleBot:
         assert ret_msg.message_id
 
     def test_send_video_dis_noti(self):
-        file_data = open('./test_data/test_video.mp4', 'rb')
-        tb = telebot.TeleBot(TOKEN)
-        ret_msg = tb.send_video(CHAT_ID, file_data, disable_notification=True)
-        assert ret_msg.message_id
+        with open('./test_data/test_video.mp4', 'rb') as file_data:
+            tb = telebot.TeleBot(TOKEN)
+            ret_msg = tb.send_video(CHAT_ID, file_data, disable_notification=True)
+            assert ret_msg.message_id
 
     def test_send_video_more_params(self):
         file_data = open('./test_data/test_video.mp4', 'rb')
@@ -216,7 +262,7 @@ class TestTeleBot:
     def test_send_audio(self):
         file_data = open('./test_data/record.mp3', 'rb')
         tb = telebot.TeleBot(TOKEN)
-        ret_msg = tb.send_audio(CHAT_ID, file_data, 1, performer='eternnoir', title='pyTelegram')
+        ret_msg = tb.send_audio(CHAT_ID, file_data, duration = 1, performer='eternnoir', title='pyTelegram')
         assert ret_msg.content_type == 'audio'
         assert ret_msg.audio.performer == 'eternnoir'
         assert ret_msg.audio.title == 'pyTelegram'
@@ -224,7 +270,7 @@ class TestTeleBot:
     def test_send_audio_dis_noti(self):
         file_data = open('./test_data/record.mp3', 'rb')
         tb = telebot.TeleBot(TOKEN)
-        ret_msg = tb.send_audio(CHAT_ID, file_data, 1, performer='eternnoir', title='pyTelegram',
+        ret_msg = tb.send_audio(CHAT_ID, file_data, duration = 1, performer='eternnoir', title='pyTelegram',
                                 disable_notification=True)
         assert ret_msg.content_type == 'audio'
         assert ret_msg.audio.performer == 'eternnoir'
@@ -433,8 +479,10 @@ class TestTeleBot:
 
     def test_create_revoke_detailed_chat_invite_link(self):
         tb = telebot.TeleBot(TOKEN)
-        cil = tb.create_chat_invite_link(GROUP_ID, 
-            (datetime.now() + timedelta(minutes=1)).timestamp(), member_limit=5)
+        cil = tb.create_chat_invite_link(
+            GROUP_ID,
+            expire_date = datetime.now() + timedelta(minutes=1),
+            member_limit=5)
         assert isinstance(cil.invite_link, str)
         assert cil.creator.id == tb.get_me().id
         assert isinstance(cil.expire_date, (float, int))
@@ -455,6 +503,61 @@ class TestTeleBot:
         new_msg = tb.edit_message_reply_markup(chat_id=CHAT_ID, message_id=ret_msg.message_id, reply_markup=markup)
         assert new_msg.message_id
 
+    def test_antiflood(self):
+        text = "Testing antiflood function"
+        tb = telebot.TeleBot(TOKEN)
+        i = -1
+        for i in range(0,200):
+            util.antiflood(tb.send_message, CHAT_ID, text)
+        assert i == 199
+    
+    def test_extract_entity(self):
+        entities_map = {"https://core.telegram.org/api/entities": "https://core.telegram.org/api/entities",
+                       "https://github.com/eternnoir/pyTelegramBotAPI": "https://github.com/eternnoir/pyTelegramBotAPI",
+                       "*粗 bold  text体*": "粗 bold  text体",
+                       "_斜体 italic text_": "斜体 italic text",
+                       "[谷歌](http://www.google.com/)": "谷歌",
+                       '`std::cout<<"test"<<std::endl;`': 'std::cout<<"test"<<std::endl;',
+                       '''```rust
+let number = loop {
+    println!("Pick a pattern from 0-2:");
+    stdin.read_line(&mut option).unwrap();
+    match option.lines().next().unwrap().parse::<usize>() {
+        Ok(number @ 0..=2) => break number,
+        _ => {
+            println!("invalid input!");
+            option = String::new();
+            continue;
+        }
+    };
+};```''': '''let number = loop {
+    println!("Pick a pattern from 0-2:");
+    stdin.read_line(&mut option).unwrap();
+    match option.lines().next().unwrap().parse::<usize>() {
+        Ok(number @ 0..=2) => break number,
+        _ => {
+            println!("invalid input!");
+            option = String::new();
+            continue;
+        }
+    };
+};''',
+                       "@username": "@username",
+                       "#hashtag索引标签": "#hashtag索引标签",
+                       "do-not-reply@telegram.org": "do-not-reply@telegram.org",
+                       "+12125550123": "+12125550123"}
+        entites = list(entities_map.keys())
+        contents = list(entities_map.values())
+        contents.sort()
+        text = '\n'.join(entites)
+
+        bot = telebot.TeleBot(TOKEN)
+        message = bot.send_message(CHAT_ID, text, parse_mode="Markdown")
+        extracted_contents = [util.extract_entity(
+            message.text, e) for e in message.entities]
+        extracted_contents.sort()
+        assert contents == extracted_contents
+
     @staticmethod
     def create_text_message(text):
         params = {'text': text}
@@ -466,21 +569,35 @@ class TestTeleBot:
         params = {'text': text}
         chat = types.User(11, False, 'test')
         message = types.Message(1, None, None, chat, 'text', params, "")
-        edited_message = None
-        channel_post = None
-        edited_channel_post = None
-        inline_query = None
-        chosen_inline_result = None
-        callback_query = None
-        shipping_query = None
-        pre_checkout_query = None
-        poll = None
-        poll_answer = None
-        my_chat_member = None
-        chat_member = None
-        return types.Update(-1001234038283, message, edited_message, channel_post, edited_channel_post, inline_query,
-                            chosen_inline_result, callback_query, shipping_query, pre_checkout_query, poll, poll_answer,
-                            my_chat_member, chat_member)
+        return types.Update(
+            update_id=-1001234038283,
+            message=message,
+            edited_message=None,
+            channel_post=None,
+            edited_channel_post=None,
+            inline_query=None,
+            chosen_inline_result=None,
+            callback_query=None,
+            shipping_query=None,
+            pre_checkout_query=None,
+            poll=None,
+            poll_answer=None,
+            my_chat_member=None,
+            chat_member=None,
+            chat_join_request=None,
+            message_reaction=None,
+            message_reaction_count=None,
+            chat_boost=None,
+            removed_chat_boost=None,
+            purchased_paid_media=None,
+            business_message=None,
+            business_connection=None,
+            edited_business_message=None,
+            deleted_business_messages=None,
+            managed_bot=None,
+            guest_message=None,
+            subscription=None,
+            stopped_message_generation=None)
 
     def test_is_string_unicode(self):
         s1 = u'string'
@@ -571,14 +688,14 @@ class TestTeleBot:
         ret_msg = tb.set_my_commands([telebot.types.BotCommand(command, description)], scope, lang)
         assert ret_msg is True
 
-        ret_msg = tb.get_my_commands(scope, lang)
+        ret_msg = tb.get_my_commands(scope = scope, language_code = lang)
         assert ret_msg[0].command == command
         assert ret_msg[0].description == description
 
-        ret_msg = tb.delete_my_commands(scope, lang)
+        ret_msg = tb.delete_my_commands(scope = scope, language_code = lang)
         assert ret_msg is True
 
-        ret_msg = tb.get_my_commands(scope, lang)
+        ret_msg = tb.get_my_commands(scope = scope, language_code = lang)
         assert ret_msg == []
 
 
@@ -587,7 +704,7 @@ class TestTeleBot:
 
         apihelper.ENABLE_MIDDLEWARE = True
 
-        tb = telebot.TeleBot('')
+        tb = telebot.TeleBot(TOKEN)
         update = self.create_message_update('/help')
 
         # noinspection PyUnusedLocal
@@ -608,7 +725,7 @@ class TestTeleBot:
 
         apihelper.ENABLE_MIDDLEWARE = True
 
-        tb = telebot.TeleBot('')
+        tb = telebot.TeleBot(TOKEN)
         update = self.create_message_update('/help')
 
         # noinspection PyUnusedLocal
@@ -625,10 +742,28 @@ class TestTeleBot:
         assert update.message.text == 'got' * 2
     
     def test_deprecated_dec(self):
-        _test()
+        deprecated1_old_function()
+        deprecated2_old_function()
 
     def test_chat_permissions(self):
         return # CHAT_ID is private chat, no permissions can be set
         #tb = telebot.TeleBot(TOKEN)
         #permissions = types.ChatPermissions(can_send_messages=True, can_send_polls=False)
         #msg = tb.set_chat_permissions(CHAT_ID, permissions)
+
+    def test_apply_html_entities(self):
+        text = {
+            "*bold*": "<b>bold</b>",
+            "__italic__": "<u>italic</u>",
+            "~strikethrough~": "<s>strikethrough</s>",
+            "`inline code`": "<code>inline code</code>",
+            "```\ncode block```": "<pre>code block</pre>",
+            "```python\nprint('Hello, world!')\n```": "<pre><code class=\"language-python\">print('Hello, world!')</code></pre>",
+            "```python\nprint(1 < 2)\n```": "<pre><code class=\"language-python\">print(1 &lt; 2)</code></pre>",
+            "[link](http://example.com/)": "<a href=\"http://example.com/\">link</a>",
+            ">blockquote": "<blockquote>blockquote</blockquote>",
+        }
+        tb = telebot.TeleBot(TOKEN)
+        for key, value in text.items():
+            ret_msg = tb.send_message(CHAT_ID, text=key, parse_mode='MarkdownV2')
+            assert telebot.formatting.apply_html_entities(ret_msg.text, ret_msg.entities, None) == value

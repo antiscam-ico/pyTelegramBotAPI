@@ -19,7 +19,7 @@ if REDIS_TESTS:
 
 @pytest.fixture()
 def telegram_bot():
-    return telebot.TeleBot('', threaded=False)
+    return telebot.TeleBot('1234:test', threaded=False)
 
 
 @pytest.fixture
@@ -64,9 +64,15 @@ def update_type(message):
     poll_answer = None
     my_chat_member = None
     chat_member = None
+    chat_join_request = None
+    message_reaction = None
+    message_reaction_count = None
+    chat_boost = None
+    chat_boost_removed = None
     return types.Update(1001234038283, message, edited_message, channel_post, edited_channel_post, inline_query,
                         chosen_inline_result, callback_query, shipping_query, pre_checkout_query, poll, poll_answer,
-                        my_chat_member, chat_member)
+                        my_chat_member, chat_member, chat_join_request, message_reaction, message_reaction_count, chat_boost, chat_boost_removed, None,
+                        None, None, None, None, None, None, None, None)
 
 
 @pytest.fixture()
@@ -83,9 +89,15 @@ def reply_to_message_update_type(reply_to_message):
     poll_answer = None
     my_chat_member = None
     chat_member = None
+    chat_join_request = None
+    message_reaction = None
+    message_reaction_count = None
+    chat_boost = None
+    chat_boost_removed = None
     return types.Update(1001234038284, reply_to_message, edited_message, channel_post, edited_channel_post,
                         inline_query, chosen_inline_result, callback_query, shipping_query, pre_checkout_query, 
-                        poll, poll_answer, my_chat_member, chat_member)
+                        poll, poll_answer, my_chat_member, chat_member, chat_join_request, message_reaction, message_reaction_count, chat_boost, chat_boost_removed, None, None, None, None, None, None, None,
+                        None, None)
 
 
 def next_handler(message):
@@ -273,3 +285,11 @@ def test_redis_handler_backend_clear_next_step_handler(telegram_bot, private_cha
 
     telegram_bot.process_new_updates([update_type])
     assert update_type.message.text == 'entered start'
+
+
+def test_dump_handlers_without_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    FileHandlerBackend.dump_handlers({1: ['handler']}, 'step.save')
+
+    assert os.path.isfile('step.save')
+    assert not os.path.isdir('step.save')
